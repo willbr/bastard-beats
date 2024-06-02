@@ -1,2 +1,2 @@
-# bastard-beat
-Bastard Beat
+# bastard-beats
+Bastard Beats
