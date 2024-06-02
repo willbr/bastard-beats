@@ -14,6 +14,11 @@ output_id = pygame.midi.get_default_output_id()
 output = pygame.midi.Output(output_id)
 print(pygame.midi.get_device_info(output_id))
 
+base_offset = 21
+
+time_step = 1000 // 120
+#print(time_step)
+
 background_colour = '#222'
 
 toolbox_font_spec = tkfont.Font(family="Georgia", size=20)
@@ -249,7 +254,7 @@ def zoom_scroll_region(zoom_step_scale):
 
 
 def echo_event(event):
-    print(event)
+    #print(event)
     return "break"
 
 
@@ -545,9 +550,8 @@ def on_key_press(event):
     current_line_width = new_line_width
 
     #print(event.keycode)
-    base_offset = 21
     note = base_offset + note_map.get(event.keycode, event.keycode)
-    print(pygame.midi.midi_to_ansi_note(note))
+    #print(pygame.midi.midi_to_ansi_note(note))
     output.write_short(0x90, note, 100)  # Note on, channel 0, note 60, velocity 100
     return 'break'
 
@@ -562,11 +566,12 @@ cursor_colour = 'white'
 cursor_width = 4
 cursor_height = font_metrics["ascent"] + 2
 
-cursor_id = None
+text_cursor_id = None
+music_cursor_id = None
 
-def create_cursor(x, y):
-    global cursor_id
-    cursor_id = canvas.create_rectangle(
+def create_text_cursor(x, y):
+    global text_cursor_id
+    text_cursor_id = canvas.create_rectangle(
             x-(cursor_width//2),
             y,
             x+(cursor_width//2),
@@ -574,21 +579,31 @@ def create_cursor(x, y):
             tags='cell',
             fill=cursor_colour)
 
+def create_music_cursor(x, y):
+    global music_cursor_id
+    music_cursor_id = canvas.create_rectangle(
+            x-(cursor_width//4),
+            y,
+            x+(cursor_width//4),
+            y+600,
+            tags='cell',
+            fill=cursor_colour)
+
 
 def set_cursor(x=0, y=0):
-    old_x, old_y, *_ = canvas.coords(cursor_id)
+    old_x, old_y, *_ = canvas.coords(text_cursor_id)
     delta_x = x - old_x
     delta_y = y - old_y
-    canvas.move(cursor_id, delta_x, delta_y)
+    canvas.move(text_cursor_id, delta_x, delta_y)
 
 def move_cursor(delta_x=0, delta_y=0):
-    canvas.move(cursor_id, delta_x, delta_y)
+    canvas.move(text_cursor_id, delta_x, delta_y)
 
-def flash_cursor():
+def flash_text_cursor():
     global cursor_colour
     cursor_colour = "red" if cursor_colour == 'white' else "white"
-    canvas.itemconfig(cursor_id, fill=cursor_colour)
-    canvas.after(1000, flash_cursor)
+    canvas.itemconfig(text_cursor_id, fill=cursor_colour)
+    canvas.after(1000, flash_text_cursor)
 
 
 def debug_object(obj):
@@ -635,12 +650,82 @@ def create_cell_here(event):
     create_cell(x, y)
 
 
-create_cursor(100, 50)
-flash_cursor()
+task_id_play = None
+played = None
+
+
+def play_notes(notes):
+    if not notes:
+        return
+    c = notes.pop(0)
+    #print((note, notes))
+
+    keycode = ord(c.upper())
+    note = base_offset + note_map.get(keycode, keycode)
+    #print(f'{c=} {keycode=} {note=}')
+    print(pygame.midi.midi_to_ansi_note(note))
+    output.write_short(0x90, note, 100)  # Note on, channel 0, note 60, velocity 100
+
+    canvas.after(100, play_notes, notes)
+
+
+def play_item(item_id):
+    played.add(item_id)
+    notes = list(canvas.itemcget(item_id, 'text'))
+    #print(f'play {item_id=} {notes=}')
+    canvas.after(0, play_notes, notes)
+
+
+def stop_and_rewind(event=None):
+    global task_id_play
+    task_id_play = None
+    x, y, *_ = canvas.coords(music_cursor_id)
+    delta_x = 20 - x
+    canvas.move(music_cursor_id, delta_x, 0)
+
+
+def step(init=False):
+    global task_id_play
+    if init:
+        pass
+    elif task_id_play is None:
+        return
+    task_id_play = canvas.after(time_step, step)
+
+    coords = canvas.coords(music_cursor_id)
+    ignore_list = set((text_cursor_id, music_cursor_id))
+    overlaps = set(canvas.find_overlapping(*coords)) - ignore_list - played
+    for item_id in overlaps:
+        play_item(item_id)
+
+    canvas.move(music_cursor_id, 1, 0)
+
+
+def toggle_play(event):
+    global task_id_play
+    global played
+    if task_id_play is None:
+        played = set()
+        step(init=True)
+    else:
+        canvas.after_cancel(task_id_play)
+        task_id_play = None
+
+
+create_text_cursor(100, 50)
+flash_text_cursor()
+create_music_cursor(20, 0)
 create_cell(100, 50)
 
 root.bind('<KeyPress-Tab>', toggle_toolbox)
-#root.bind('<KeyPress-Space>', play)
+root.bind('<KeyPress-Escape>', stop_and_rewind)
+root.bind('<KeyPress-space>', toggle_play)
+root.bind('<KeyPress-Control_L>', lambda e: None)
+
+root.bind('<KeyPress-Up>', on_key_press)
+root.bind('<KeyPress-Down>', on_key_press)
+root.bind('<KeyPress-Left>', on_key_press)
+root.bind('<KeyPress-Right>', on_key_press)
 
 #root.bind('<KeyPress-u>', start_undoing)
 #root.bind('<KeyPress-y>', start_redoing)
