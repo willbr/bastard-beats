@@ -6,7 +6,7 @@ import tkinter.font as tkfont
 
 
 root = Tk()
-root.geometry('800x600')
+root.geometry('1024x800')
 root.title('Bastard Beat')
 
 pygame.midi.init()
@@ -21,16 +21,13 @@ time_step = 1000 // 120
 
 background_colour = '#222'
 
-toolbox_font_spec = tkfont.Font(family="Georgia", size=20)
-font_metrics = toolbox_font_spec.metrics()
+cell_size = 40
 
-zoom_level = 5
-zoom_scales = [
-    0.1, 0.25, 0.333, 0.5, 0.667,
-    1,
-    1.5, 2, 3, 4, 5, 6, 7, 8,
-]
+num_cells_x = 16
+num_cells_y = 16
 
+font_spec = tkfont.Font(family="Georgia", size=20)
+font_metrics = font_spec.metrics()
 
 colours = {
     'Black': '#333',
@@ -60,57 +57,8 @@ vscrollbar.pack(side=RIGHT, fill=Y)
 canvas = Canvas(frame, bd=0, bg=background_colour)
 canvas.pack(side=LEFT, fill=BOTH, expand=YES)
 
-toolbox_style = Style()
-toolbox_style.configure('Custom.TFrame', background='#888')
-
-toolbox_label_style = Style()
-toolbox_label_style.configure('Custom.TLabel', background='#888')
-
-toolbox = Frame(root, style='Custom.TFrame')
-
-brush_label = Label(toolbox, text=f'N', font=toolbox_font_spec, style='Custom.TLabel')
-brush_label.pack(side=TOP, padx=10, pady=10)
-
-tool_label = Label(toolbox, text=f'tool', font=toolbox_font_spec, style='Custom.TLabel')
-tool_label.pack(side=TOP, padx=10, pady=10)
-
-layer_label = Label(toolbox, text=f'layer', font=toolbox_font_spec, style='Custom.TLabel')
-layer_label.pack(side=TOP, padx=10, pady=10)
-
-zoom_label = Label(toolbox, text=f' 100.00%', font=toolbox_font_spec, style='Custom.TLabel')
-zoom_label.pack(side=TOP, padx=10, pady=10)
-
-
 hscrollbar.config(command=canvas.xview)
 vscrollbar.config(command=canvas.yview)
-
-brush_size = None
-brush_size_on_canvas = None
-brush_color = '#8B88EF'
-
-current_tool = None
-
-current_cell = None
-
-
-undo_stack = []
-redo_stack = []
-
-layer = {
-        'outline': {'visible': True},
-        'colour': {'visible': True},
-        'sketch': {'visible': True},
-        'background': {'visible': True},
-        }
-
-def set_brush_size(new_size):
-    global brush_size
-    global brush_size_on_canvas
-    brush_size = int(min(max(2, new_size), 200))
-    brush_label.configure(text=f'{brush_size:3d}')
-    brush_size_on_canvas = int(max(2, brush_size * zoom_scales[zoom_level]))
-    brush_size_on_canvas -= brush_size_on_canvas % 2 # bugfix; removes shimmering artifacts
-    #print(f'{brush_size_on_canvas=}')
 
 
 def get_visible_ids(tag_name=None, ignore_tags=None):
@@ -129,11 +77,6 @@ def get_live_ids(tag_name=None):
     deleted_ids = canvas.find_withtag('deleted')
     live_layer_ids = tuple(set(all_items) - set(deleted_ids))
     return live_layer_ids
-
-
-def sort_objects_by_layer():
-    for layer_name in ['background', 'sketch', 'colour', 'outline']:
-        canvas.tag_raise(layer_name)
 
 
 def on_canvas_resize(event=None):
@@ -175,122 +118,13 @@ def on_canvas_resize(event=None):
         yscrollcommand=vscrollbar.set)
 
 
-def on_windows_zoom(event):
-    ctrl_is_down = event.state == 4
-    if ctrl_is_down == False:
-        return
-    x = canvas.canvasx(event.x)
-    y = canvas.canvasy(event.y)
-
-    if event.delta > 0:
-        zoom(x, y, 1)
-    else:
-        zoom(x, y, -1)
-
-    update_brush_cursor(event)
-
-
-def zoom(x, y, step):
-    global zoom_level
-
-    # if zoom_level > 9:
-    #    return
-
-    prev_level = zoom_level
-    next_level = min(max(0, zoom_level + step), len(zoom_scales)-1)
-
-    if prev_level == next_level:
-        return
-
-
-    prev_zoom_scale = zoom_scales[prev_level]
-    next_zoom_scale = zoom_scales[next_level]
-    #print(f'{prev_zoom_scale=}, {next_zoom_scale=}')
-
-    zoom_step_scale = next_zoom_scale / prev_zoom_scale
-    #print(f'{zoom_step_scale=}')
-
-    zoom_level += step
-    #print(f'{zoom_level=}')
-
-    zoom_label.configure(text=f'{next_zoom_scale*100:4.2f}%')
-
-    #canvas.scale('all', x,y, zoom_step_scale, zoom_step_scale)
-    canvas.scale('!colours', x,y, zoom_step_scale, zoom_step_scale)
-
-    all_items = canvas.find_all()
-
-    for item_id in all_items:
-        if canvas.type(item_id) == 'line':
-            current_width = float(canvas.itemcget(item_id, 'width'))
-            new_width = current_width * zoom_step_scale
-            canvas.itemconfig(item_id, width=new_width)
-
-    set_brush_size(brush_size)
-
-    zoom_scroll_region(zoom_step_scale)
-
-
-def zoom_scroll_region(zoom_step_scale):
-    scroll_region = canvas.cget("scrollregion")
-    if scroll_region == '':
-        print('no scroll region')
-        return
-
-    old_x1, old_y1, old_x2, old_y2 = (float(n) for n in scroll_region.split(' '))
-
-    x1 = old_x1 * zoom_step_scale
-    y1 = old_y1 * zoom_step_scale
-    x2 = old_x2 * zoom_step_scale
-    y2 = old_y2 * zoom_step_scale
-
-    #print(('new', x1, y1, x2, y2))
-
-    canvas.config(scrollregion=(x1, y1, x2, y2))
-
-    on_canvas_resize()
-
-
-
-
 def echo_event(event):
     #print(event)
     return "break"
 
 
-def update_brush_cursor(event):
-    #print(event)
-    r = brush_size_on_canvas / 2
-    x, y = canvas.canvasx(event.x), canvas.canvasy(event.y)
-    x0, y0 = x - r, y - r
-    x1, y1 = x + r, y + r
-
-
-def motion(event):
-    update_brush_cursor(event)
-
-    #print(f'{current_tool=}')
-    tool_spec = tools.get(current_tool, None)
-    if tool_spec is None:
-        return
-
-    tool_fn = tools[current_tool].get('motion', None)
-    if tool_fn is None:
-        return
-
-    tool_fn(event)
-
-
-#canvas.config(cursor='crosshair')
-#canvas.config(cursor='none')
-
 canvas.bind('<Configure>', on_canvas_resize)
 
-#canvas.bind('<Motion>', motion)
-
-#canvas.bind('<ButtonPress-2>', echo_event)
-#canvas.bind('<B2-Motion>', echo_event)
-#canvas.bind('<ButtonRelease-2>', echo_event)
 
 def start_panning(event):
     x, y = event.x, event.y
@@ -304,156 +138,8 @@ canvas.bind('<ButtonPress-3>', start_panning)
 canvas.bind('<B3-Motion>', motion_panning)
 
 
-initial_brush_size = 0
-brush_size_last_x = 0
-brush_size_last_y = 0
-
-def save_cursor_position(event):
-    global brush_size_last_x
-    global brush_size_last_y
-    brush_size_last_x = event.x
-    brush_size_last_y = event.y
-
-
-def restore_cursor_position(event):
-    #print('warping cursor')
-    canvas.event_generate(
-            '<Motion>',
-            warp=True,
-            x=brush_size_last_x,
-            y=brush_size_last_y)
-
-
-def on_alt_b3_press(event):
-    global initial_brush_size 
-    initial_brush_size = brush_size
-
-    save_cursor_position(event)
-
-
-def on_alt_b3_motion(event):
-    delta_x = (event.x - brush_size_last_x) / 4
-    #delta_y = (event.y - brush_size_last_y) / 4
-
-    set_brush_size(initial_brush_size + delta_x)
-
-    event.x = brush_size_last_x
-    event.y = brush_size_last_y
-
-    update_brush_cursor(event)
-    return 'break'
-
-
-
-def on_alt_b3_release(event):
-    print(f'{brush_size=}')
-    restore_cursor_position(event)
-
-
-#canvas.bind('<Alt-ButtonPress-3>', on_alt_b3_press, add='+')
-#canvas.bind('<Alt-B3-Motion>', on_alt_b3_motion, add='+')
-#canvas.bind('<Alt-B3-ButtonRelease>', on_alt_b3_release, add='+')
-
 root.bind('<Alt_L>', lambda x: "break") # ignore key press
 
-
-def toggle_toolbox(event):
-    if toolbox.winfo_ismapped():
-        toolbox.place_forget()
-    else:
-        toolbox.place(x=10, y=10)
-
-
-initial_zoom = 0
-
-def start_zooming(event):
-    global initial_zoom
-    initial_zoom = zoom_level
-    #print(f'{initial_zoom=}')
-    pass
-
-
-def motion_zooming(event):
-    delta_x = (event.x - brush_size_last_x) // 4
-    #print(f'{delta_x=}')
-
-    delta_steps = delta_x // 20
-    #print(f'{delta_steps=}')
-
-    target_level = initial_zoom + delta_steps
-    #print(f'{target_level=} = {initial_zoom=} + {delta_steps=}')
-
-    x = canvas.canvasx(brush_size_last_x)
-    y = canvas.canvasy(brush_size_last_y)
-
-
-    if target_level > zoom_level:
-        zoom(x, y, +1)
-    elif target_level == zoom_level:
-        pass
-    else:
-        zoom(x, y, -1)
-        pass
-
-    return 'break'
-
-
-
-
-def apply_change(action, change_type):
-    match action:
-        case 'clear_layer', layer_name, object_ids:
-            new_state = 'normal' if change_type == 'undo' else 'hidden'
-            #print(f'{change_type=} clear layer {layer_name=} {object_ids}')
-
-        case 'toggle_layer_visible', layer_name:
-            toggle_layer_visible(layer_name)
-            object_ids = ()
-
-        case _, object_ids:
-            new_state = 'hidden' if change_type == 'undo' else 'normal'
-            pass
-
-    for object_id in object_ids:
-        #print(f'apply {object_id=} {new_state=}')
-        if new_state == 'hidden':
-            canvas.addtag_withtag('deleted', object_id)
-        else:
-            canvas.dtag(object_id, 'deleted')
-        canvas.itemconfig(object_id, state=new_state)
-
-
-def start_undoing(event):
-    if not undo_stack:
-        print('nothing to undo')
-        return
-
-    action = undo_stack.pop()
-    apply_change(action, 'undo')
-    redo_stack.append(action)
-
-
-def start_redoing(event):
-    if not redo_stack:
-        print('nothing to redo')
-        return
-
-    action = redo_stack.pop()
-    apply_change(action, 'redo')
-    undo_stack.append(action)
-
-
-
-def zoom_to_level(target_level):
-    def fn(event):
-        x = canvas.canvasx(event.x)
-        y = canvas.canvasy(event.y)
-        delta = target_level - zoom_level
-        zoom(x, y, delta)
-        return
-    return fn
-
-#select_brush_tool()
 
 note_map = {
         220: 0, # \
@@ -525,85 +211,122 @@ note_map = {
         }
 
 def on_key_press(event):
-    global current_text
-    global current_line
-    global current_col
-    global current_line_width
     #print(event)
 
     char = event.char
     keysym = event.keysym
-    if char == '\b':
-        current_text = current_text[:-1]
-    else:
-        current_text += char
-    canvas.itemconfig(current_cell, text=current_text)
+    #print(f'{char=}, {keysym=}')
 
+    match keysym:
+        case 'Up':
+            move_cursor(delta_y=-1)
+            return 'break'
+        case 'Down':
+            move_cursor(delta_y=1)
+            return 'break'
+        case 'Left':
+            move_cursor(delta_x=-1)
+            return 'break'
+        case 'Right':
+            move_cursor(delta_x=1)
+            return 'break'
+        case 'space':
+            move_cursor(delta_x=1)
+            return 'break'
 
-    lines = current_text.split('\n')
-    line = lines[current_line]
-
-    padding = 2
-    new_line_width = toolbox_font_spec.measure(line) + padding
-    delta_x = new_line_width - current_line_width
-    move_cursor(delta_x)
-    current_line_width = new_line_width
 
     #print(event.keycode)
     note = base_offset + note_map.get(event.keycode, event.keycode)
-    #print(pygame.midi.midi_to_ansi_note(note))
+
+    set_note(note, input_cursor_x, input_cursor_y)
+
     output.write_short(0x90, note, 100)  # Note on, channel 0, note 60, velocity 100
+
+    move_cursor(delta_x=1)
+
     return 'break'
 
+def set_note(note, cell_x, cell_y):
+    note_name = pygame.midi.midi_to_ansi_note(note)
+    print(note_name)
 
-current_text = ''
-current_line = 0
-current_col  = 0
-current_line_width = 0
+    if '#' in note_name:
+        cell_colour = 'black'
+    else:
+        cell_colour = 'white'
+
+    canvas.create_rectangle(
+        cell_x * cell_size,
+        cell_y * cell_size,
+        (cell_x + 1) * cell_size,
+        (cell_y + 1) * cell_size,
+        fill=cell_colour,
+        #outline='black',
+    )
 
 
 cursor_colour = 'white'
-cursor_width = 4
 cursor_height = font_metrics["ascent"] + 2
 
-text_cursor_id = None
+input_cursor_id = None
 music_cursor_id = None
 
-def create_text_cursor(x, y):
-    global text_cursor_id
-    text_cursor_id = canvas.create_rectangle(
-            x-(cursor_width//2),
+input_cursor_x = 0
+input_cursor_y = 0
+
+def create_input_cursor(x, y):
+    global input_cursor_id
+    input_cursor_id = canvas.create_rectangle(
+            x,
             y,
-            x+(cursor_width//2),
-            y+cursor_height,
+            x+cell_size,
+            y+cell_size,
             tags='cell',
             fill=cursor_colour)
+
 
 def create_music_cursor(x, y):
     global music_cursor_id
     music_cursor_id = canvas.create_rectangle(
-            x-(cursor_width//4),
+            x,
             y,
-            x+(cursor_width//4),
-            y+600,
+            x+(cell_size//8),
+            y+(cell_size*num_cells_y),
             tags='cell',
             fill=cursor_colour)
 
 
-def set_cursor(x=0, y=0):
-    old_x, old_y, *_ = canvas.coords(text_cursor_id)
-    delta_x = x - old_x
-    delta_y = y - old_y
-    canvas.move(text_cursor_id, delta_x, delta_y)
+def set_cursor(x, y):
+    global input_cursor_x
+    global input_cursor_y
+
+    input_cursor_x = min(max(x, 0), num_cells_x)
+    input_cursor_y = min(max(y, 0), num_cells_y)
+
+    if input_cursor_x == 16: input_cursor_x = 0
+    if input_cursor_y == 16: input_cursor_y = 0
+
+    x = input_cursor_x * cell_size
+    y = input_cursor_y * cell_size
+
+    canvas.coords(
+            input_cursor_id,
+            x, y,
+            x + cell_size, y + cell_size,
+            )
 
 def move_cursor(delta_x=0, delta_y=0):
-    canvas.move(text_cursor_id, delta_x, delta_y)
+    new_x = input_cursor_x + delta_x
+    new_y = input_cursor_y + delta_y
 
-def flash_text_cursor():
+    set_cursor(new_x, new_y)
+
+
+def flash_input_cursor():
     global cursor_colour
     cursor_colour = "red" if cursor_colour == 'white' else "white"
-    canvas.itemconfig(text_cursor_id, fill=cursor_colour)
-    canvas.after(1000, flash_text_cursor)
+    canvas.itemconfig(input_cursor_id, fill=cursor_colour)
+    canvas.after(1000, flash_input_cursor)
 
 
 def debug_object(obj):
@@ -612,43 +335,13 @@ def debug_object(obj):
     for attr_name in [a for a in dir(obj) if not a.startswith('_')]:
         print((attr_name, getattr(obj, attr_name)))
 
-def click_text(event):
-    item_id = canvas.find_overlapping(event.x, event.y, event.x, event.y)
-    canvas.itemconfig(item_id, fill='green')
-    return 'break'
 
-def create_cell(x, y):
-    global current_cell
-    global current_text
-    global current_line
-    global current_col
-    global current_line_width
-
-    y -= font_metrics['ascent'] // 2
-
+def move_cursor_to_mouse(event):
+    x = canvas.canvasx(event.x) // cell_size
+    y = canvas.canvasy(event.y) // cell_size
+    print((x, y))
     set_cursor(x, y)
-
-    current_text = ''
-    current_cell = canvas.create_text(
-            x, y,
-            text='',
-            font=toolbox_font_spec,
-            fill=colours['Cyan'],
-            anchor='nw')
-
-    current_line = 0
-    current_col  = 0
-
-    current_line_width = 0
-
-    canvas.tag_bind(current_cell, '<Button-1>', click_text)
-
-
-def create_cell_here(event):
-    x = canvas.canvasx(event.x)
-    y = canvas.canvasy(event.y)
-    create_cell(x, y)
-
+    return 'break'
 
 task_id_play = None
 played = None
@@ -680,7 +373,8 @@ def stop_and_rewind(event=None):
     global task_id_play
     task_id_play = None
     x, y, *_ = canvas.coords(music_cursor_id)
-    delta_x = 20 - x
+    target_x = 0
+    delta_x = target_x - x
     canvas.move(music_cursor_id, delta_x, 0)
 
 
@@ -693,7 +387,11 @@ def step(init=False):
     task_id_play = canvas.after(time_step, step)
 
     coords = canvas.coords(music_cursor_id)
-    ignore_list = set((text_cursor_id, music_cursor_id))
+
+    grid_ids = canvas.find_withtag('grid')
+
+    ignore_list = set((input_cursor_id, music_cursor_id, *grid_ids))
+
     overlaps = set(canvas.find_overlapping(*coords)) - ignore_list - played
     for item_id in overlaps:
         play_item(item_id)
@@ -712,14 +410,34 @@ def toggle_play(event):
         task_id_play = None
 
 
-create_text_cursor(100, 50)
-flash_text_cursor()
-create_music_cursor(20, 0)
-create_cell(100, 50)
+def draw_grid(width, height, interval):
+    global grid_ids
+    # Vertical lines
+    for i in range(0, width, interval):
+        line_id = canvas.create_line(i, 0, i, height, fill="gray", tags='grid')
+    
+    # Horizontal lines
+    for i in range(0, height, interval):
+        canvas.create_line(0, i, width, i, fill="gray", tags='grid')
 
-root.bind('<KeyPress-Tab>', toggle_toolbox)
+    canvas.create_line(width-1, 0, width-1, height, fill="gray", tags='grid')
+    canvas.create_line(0, height-1, width, height-1, fill="gray", tags='grid')
+
+
+
+create_music_cursor(0, 0)
+
+draw_grid(
+        width=num_cells_x * cell_size,
+        height=num_cells_y * cell_size,
+        interval=cell_size,
+        )
+
+create_input_cursor(0, 0)
+flash_input_cursor()
+
 root.bind('<KeyPress-Escape>', stop_and_rewind)
-root.bind('<KeyPress-space>', toggle_play)
+root.bind('<KeyPress-Return>', toggle_play)
 root.bind('<KeyPress-Control_L>', lambda e: None)
 
 root.bind('<KeyPress-Up>', on_key_press)
@@ -727,19 +445,9 @@ root.bind('<KeyPress-Down>', on_key_press)
 root.bind('<KeyPress-Left>', on_key_press)
 root.bind('<KeyPress-Right>', on_key_press)
 
-#root.bind('<KeyPress-u>', start_undoing)
-#root.bind('<KeyPress-y>', start_redoing)
-
-canvas.bind('<MouseWheel>', on_windows_zoom)
-
-canvas.bind('<Double-Button-1>', create_cell_here)
-#canvas.bind('<Button-1>', lambda e: print(e))
-#canvas.bind('<Button-2>', lambda e: print(e))
-#canvas.bind('<Button-3>', lambda e: print(e))
-
+canvas.bind('<Double-Button-1>', move_cursor_to_mouse)
 root.bind('<KeyPress>', on_key_press)
 
-#root.wm_state('zoomed')
 root.mainloop()
 
 del output
